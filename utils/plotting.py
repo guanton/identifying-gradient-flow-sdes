@@ -1,3 +1,25 @@
+# MIT License
+#
+# Copyright (c) 2024 Antonio Terpin, Nicolas Lanzetti, Martin Gadea, Florian Dörfler
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 """
 This module provides a set of plotting utilities for visualizing data and model predictions using `matplotlib`. 
 The primary functionalities include plotting couplings between particles, generating level curves, visualizing model 
@@ -48,7 +70,8 @@ To plot couplings between two sets of points:
     >>> plt.show()
 """
 
-
+import imageio
+from io import BytesIO
 import os
 from pathlib import Path
 import jax
@@ -58,6 +81,166 @@ import matplotlib.colors as clr
 import yaml
 from typing import Tuple, Optional, Callable, Dict, List, Literal, Union
 
+
+def create_marginal_gif(data, measurement_times, V, sigma, gif_filename='marginals.gif',
+                        bins=30, sde_title=None, show_gibbs=False, duration=0.5, output_dir = ''):
+    """
+    Create a GIF of the marginal distributions over all measurement times.
+
+    Parameters:
+        data (np.ndarray): Array of shape (num_trajectories, n_measurements, d).
+        measurement_times (array-like): List/array of measurement times.
+        V (function): Potential function (wrapped) for computing the Gibbs density.
+        sigma (float): Diffusivity constant.
+        gif_filename (str): Output filename for the GIF.
+        bins (int): Number of bins for 1D histograms.
+        sde_title (str, optional): SDE title to display on each frame.
+        show_gibbs (bool): If True, overlay the Gibbs density.
+        duration (float): Duration (in seconds) per frame in the GIF.
+    """
+    images = []
+    measurement_times = np.array(measurement_times)
+    # Compute global axis limits.
+    d = data.shape[2]
+    if d == 1:
+        x_min, x_max = compute_axes_limits(data, dim=1)
+        y_min = y_max = None
+    elif d >= 2:
+        x_min, x_max, y_min, y_max = compute_axes_limits(data, dim=2)
+
+    for t in measurement_times:
+        plt.figure()
+        plot_time_marginal(data, t, measurement_times, V, sigma, bins=bins,
+                           x_min=x_min, x_max=x_max, y_min=y_min, y_max=y_max,
+                           sde_title=sde_title, show_gibbs=show_gibbs, display=False)
+        buf = BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+        image = imageio.imread(buf)
+        images.append(image)
+
+    imageio.mimsave(os.path.join(output_dir, gif_filename), images, duration=duration, loop=0)
+    print(f"GIF saved to {gif_filename}")
+
+
+def plot_time_marginal(data, measurement_time, measurement_times, V, sigma, bins=30,
+                       x_min=None, x_max=None, y_min=None, y_max=None,
+                       sde_title=None, show_gibbs=True, display=True):
+    """
+    Plot the marginal distribution at a given measurement time with an overlay of the Gibbs distribution.
+
+    Parameters:
+        data (np.ndarray): Array of shape (num_trajectories, n_measurements, d) containing trajectory data.
+        measurement_time (float): The measurement time to plot.
+        measurement_times (array-like): Array of measurement times corresponding to the data.
+        V (function): Potential function (wrapped to accept numpy arrays) used to compute the Gibbs density.
+        sigma (float): Diffusivity constant.
+        bins (int): Number of bins for histogram (for 1D data).
+        x_min, x_max (float, optional): Limits for the x-axis.
+        y_min, y_max (float, optional): Limits for the y-axis (for d>=2).
+        sde_title (str, optional): A title string for the SDE to display in the plot.
+        show_gibbs (bool): If True, overlay the computed Gibbs density.
+
+    Notes:
+        - For 1D data, the function plots a histogram (with consistent x-axis) and overlays a line for the Gibbs density.
+        - For 2D data, it creates a scatter plot (first two dimensions) and overlays contour lines of the Gibbs density.
+    """
+    measurement_times = np.array(measurement_times)
+    time_index = np.argmin(np.abs(measurement_times - measurement_time))
+    marginals = data[:, time_index, :]
+    d = marginals.shape[1]
+
+    # Compute global axis limits if not provided.
+    if d == 1:
+        if x_min is None or x_max is None:
+            x_min, x_max = compute_axes_limits(data, dim=1)
+    elif d >= 2:
+        if x_min is None or x_max is None or y_min is None or y_max is None:
+            x_min, x_max, y_min, y_max = compute_axes_limits(data, dim=2)
+
+    title_str = sde_title if sde_title is not None else f"Overdamped Langevin: dXₜ = -∇V(Xₜ) dt + {sigma} dWₜ"
+
+    if d == 1:
+        plt.figure(figsize=(6, 5))
+        # Plot the histogram.
+        plt.hist(marginals[:, 0], bins=bins, density=True, alpha=0.7, color='steelblue', range=(x_min, x_max))
+        # Overlay the Gibbs density.
+        if show_gibbs:
+            x_grid = np.linspace(x_min, x_max, 200)
+            # Compute the unnormalized Gibbs density: exp(-2V(x)/sigma²)
+            density = np.array([np.exp(-2 * V(np.array([x])) / sigma ** 2) for x in x_grid])
+            # Normalize the density.
+            Z = np.trapz(density, x_grid)
+            density = density / Z
+            plt.plot(x_grid, density, 'r-', lw=2, label='Gibbs Density')
+            plt.legend()
+        plt.xlabel("x")
+        plt.ylabel("Density")
+        plt.title(f"1D Marginal at t = {measurement_times[time_index]:.3f}\n{sde_title}")
+    elif d == 2:
+        plt.figure(figsize=(6, 5))
+        plt.scatter(marginals[:, 0], marginals[:, 1], alpha=0.7, color='darkorange')
+        plt.xlabel("x")
+        plt.ylabel("y")
+        plt.title(f"Marginal at t = {measurement_times[time_index]:.3f}\n{sde_title}")
+        plt.xlim(x_min, x_max)
+        plt.ylim(y_min, y_max)
+        # Overlay Gibbs density contours.
+        if show_gibbs:
+            xx = np.linspace(x_min, x_max, 100)
+            yy = np.linspace(y_min, y_max, 100)
+            X, Y = np.meshgrid(xx, yy)
+
+            # Compute log Gibbs density on grid
+            def gibbs_log_density(x, y):
+                return -2 * V(np.array([x, y])) / sigma ** 2
+
+            vec_gibbs_log = np.vectorize(gibbs_log_density)
+            logZ = vec_gibbs_log(X, Y)
+            max_log = np.max(logZ)
+            Z = np.exp(logZ - max_log)
+            # Normalize by double integration.
+            Z_norm = np.trapz(np.trapz(Z, xx, axis=1), yy)
+            Z = Z / Z_norm
+            levels = np.linspace(np.nanmin(Z), np.nanmax(Z), 6)
+            cs = plt.contour(X, Y, Z, levels=levels, colors='k', linestyles='--')
+            plt.clabel(cs, inline=True, fontsize=8)
+        plt.grid(True)
+    else:
+        print('Not implemented')
+    plt.tight_layout()
+    if display:
+        plt.show()
+
+def compute_axes_limits(data, dim=1):
+    """
+    Compute axis limits automatically from the entire data array.
+
+    Parameters:
+        data (np.ndarray): Array of shape (num_trajectories, n_measurements, d).
+        dim (int): 1 for 1D data, 2 for 2D data.
+
+    Returns:
+        For 1D: (x_min, x_max).
+        For 2D: (x_min, x_max, y_min, y_max).
+    """
+    if dim == 1:
+        x_vals = data[:, :, 0]
+        x_min = np.min(x_vals)
+        x_max = np.max(x_vals)
+        margin = 0.1 * (x_max - x_min)
+        return x_min - margin, x_max + margin
+    elif dim >= 2:
+        x_vals = data[:, :, 0]
+        y_vals = data[:, :, 1]
+        x_min = np.min(x_vals)
+        x_max = np.max(x_vals)
+        y_min = np.min(y_vals)
+        y_max = np.max(y_vals)
+        x_margin = 0.1 * (x_max - x_min)
+        y_margin = 0.1 * (y_max - y_min)
+        return x_min - x_margin, x_max + x_margin, y_min - y_margin, y_max + y_margin
 
 def plot_couplings(data: np.ndarray) -> Tuple[plt.Figure, plt.Axes]:
     """
@@ -294,7 +477,7 @@ def plot_level_curves(
     ax.contour(x, y, z, levels=15, linewidths=.5, linestyles='dotted',
                colors='k')
     ctr = ax.contourf(x, y, z, levels=15, cmap='Blues')
-    
+
     if save_to is not None:
         # Save the data to a text file
         path = Path(save_to)
@@ -312,7 +495,47 @@ def plot_level_curves(
         fig.savefig(save_to + '.png')
     return fig
 
+import numpy as np
 
+def _finite_bounds(arrs, pad_frac=0.05, default=(-1.0, 1.0)):
+    """
+    Compute finite min/max over a list of 1D arrays (or raveled ND arrays).
+    Adds symmetric padding. If nothing finite, return 'default'.
+    """
+    if not isinstance(arrs, (list, tuple)):
+        arrs = [arrs]
+    vals = []
+    for a in arrs:
+        if a is None:
+            continue
+        a = np.asarray(a).ravel()
+        if a.size == 0:
+            continue
+        good = np.isfinite(a)
+        if np.any(good):
+            vals.append(a[good])
+    if not vals:
+        return default
+    v = np.concatenate(vals)
+    lo, hi = float(v.min()), float(v.max())
+    if not np.isfinite(lo) or not np.isfinite(hi):
+        return default
+    if lo == hi:  # degenerate span
+        width = max(1.0, abs(lo)) * pad_frac
+        return (lo - width, hi + width)
+    pad = pad_frac * (hi - lo)
+    return (lo - pad, hi + pad)
+
+def _report_nonfinite(name, a):
+    a = np.asarray(a)
+    n = a.size
+    if n == 0:
+        print(f"[plot_predictions] {name}: EMPTY")
+        return
+    n_nan = np.isnan(a).sum()
+    n_inf = np.isinf(a).sum()
+    if n_nan or n_inf:
+        print(f"[plot_predictions] {name}: size={n}, NaN={n_nan}, Inf={n_inf}")
 def plot_predictions(predicted: np.ndarray,
     data_dict: Dict[int, np.ndarray],
     interval: Optional[Tuple[int, int]],
@@ -321,93 +544,68 @@ def plot_predictions(predicted: np.ndarray,
     n_particles: int = 200
 ) -> plt.Figure:
     """
-    Plot predictions and ground truth data for each timestep.
-
-    Parameters
-    ----------
-    predicted : np.ndarray
-        An array of shape (num_timesteps, num_particles, num_dimensions) containing
-        the predicted particle positions.
-    data_dict : Dict[int, np.ndarray]
-        A dictionary mapping timesteps to arrays of shape (num_particles, num_dimensions)
-        containing the ground truth particle positions.
-    interval : Optional[Tuple[int, int]]
-        A tuple specifying the start and end timesteps to plot. If None, plots all timesteps.
-    model : str
-        A string specifying the model type used to determine color mapping.
-    save_to : Optional[str], default=None
-        Directory path where plots should be saved. If None, no plots will be saved.
-    n_particles : int
-        The number of particles to consider for each timestep. Default is 200. If there are less
-        particles either in predictions or in ground truth, that will be the number of
-        particles plotted.
-
-    Returns
-    -------
-    plt.Figure
-        The matplotlib figure object containing the plot.
-
-    Example
-    -------
-
-    .. code-block:: python
-
-        import numpy as np
-        import matplotlib.pyplot as plt
-
-        # Define the ground truth particle positions
-        data_dict = {
-            0: np.array([
-                [0., 0.],  [1., 0.],  [2., 1.],  [3., 1.],  [4., 2.],  [5., 3.]]),  # Ground truth at t=0
-            1: np.array([
-                [0., 1.],  [1., 1.],  [2., 2.],  [3., 2.],  [4., 3.],  [5., 4.]])   # Ground truth at t=1
-        }
-
-        # Define the predicted particle positions
-        predicted = np.array([
-            [[0.05, 0.0], [0.95, 0.0], [2.1, 1.05], [2.9, 1.1], [4.0, 2.1], [5.1, 3.0]],  # Predicted positions at t=0
-            [[0.0, 1.02], [1.1, 1.0], [2.05, 2.0], [3.05, 2.05], [4.05, 3.02], [5.05, 4.1]]  # Predicted positions at t=1
-        ])
-
-        # Call the function to plot the predictions and ground truth
-        fig = plot_predictions(predicted=predicted,
-                               data_dict=data_dict,
-                               interval=(0, 1),
-                               model='jkonet-star',
-                               )
-
-        # Display the plot
-        plt.show()
-
-    .. toggle:: Click to toggle plot
-
-        .. image:: ../_static/plotting_documentation/plot_predictions.png
-           :align: center
-           :alt: Example plot showing predictions.
+    Plot predictions and ground truth data for each timestep (2D).
+    Uses _finite_bounds/_report_nonfinite to avoid NaN/Inf axis limits.
     """
+
+    # ---- choose time window and synchronize with 'predicted' ----
+    # ---- choose time window and synchronize with 'predicted' ----
     if interval is None:
-        start, end = 0, max(data_dict.keys())
+        # default end = min( last predicted frame, last data frame )
+        last_data_t = max(data_dict.keys()) if len(data_dict) else 0
+        start, end = 0, min(predicted.shape[0] - 1, last_data_t)
     else:
-        start, end = interval
+        start, end = int(interval[0]), int(interval[1])
 
-    filtered_timesteps = range(start, end + 1)
+    T_pred = int(predicted.shape[0])
+    if T_pred <= 0:
+        raise ValueError("predicted has zero timesteps.")
 
-    min_particles = min(n_particles, predicted.shape[1], min(array.shape[0] for array in data_dict.values()))
-    data = np.zeros((len(filtered_timesteps), min_particles, predicted.shape[2]))
+    # clip both ends into [0, T_pred-1]
+    start = int(np.clip(start, 0, T_pred - 1))
+    end = int(np.clip(end, 0, T_pred - 1))
 
-    # set max and min values
-    data = data[:, :min_particles, :]
-    predicted = predicted[:, :min_particles, :]
-    for i, t in enumerate(filtered_timesteps):
+    # if empty after clipping, collapse to the nearest valid single frame
+    if end < start:
+        # if the request was entirely to the right, use the last frame; if to the left, the first.
+        # after np.clip above, both cases reduce to: choose the closer of start/end
+        start = end = min(max(start, 0), T_pred - 1)
+
+    timesteps = list(range(start, end + 1))
+
+    # slice predicted to the requested time window
+    predicted_win = predicted[start:end + 1]
+
+    # how many particles can we show
+    # (respect both predicted and any available data_dict[t])
+    max_particles_data = min(
+        (data_dict[t].shape[0] for t in timesteps if t in data_dict),
+        default=n_particles
+    )
+    min_particles = min(n_particles, predicted_win.shape[1], max_particles_data)
+
+    # build dense ground‑truth tensor (zeros for missing t, if any)
+    D = predicted.shape[2]  # num_dimensions; we assume D >= 2
+    data = np.zeros((len(timesteps), min_particles, D), dtype=float)
+    for i, t in enumerate(timesteps):
         if t in data_dict:
             data[i, :, :] = data_dict[t][:min_particles, :]
 
-    x_min = np.min((np.amin(data, axis=0)[:, 0].min(), np.amin(predicted, axis=0)[:, 0].min())) - 2.0
-    x_max = np.max((np.amax(data, axis=0)[:, 0].max(), np.amax(predicted, axis=0)[:, 0].max())) + 2.0
+    # restrict to common particle count
+    data          = data[:, :min_particles, :]
+    predicted_win = predicted_win[:, :min_particles, :]
 
-    y_min = np.min((np.amin(data, axis=0)[:, 1].min(), np.amin(predicted, axis=0)[:, 1].min())) - 2.0
-    y_max = np.max((np.amax(data, axis=0)[:, 1].max(), np.amax(predicted, axis=0)[:, 1].max())) + 2.0
+    # ---- report non‑finites (diagnostic only) ----
+    _report_nonfinite("data(x)",         data[..., 0])
+    _report_nonfinite("data(y)",         data[..., 1])
+    _report_nonfinite("predicted(x)",    predicted_win[..., 0])
+    _report_nonfinite("predicted(y)",    predicted_win[..., 1])
 
+    # ---- robust axis limits (never NaN/Inf) ----
+    x_min, x_max = _finite_bounds([data[..., 0], predicted_win[..., 0]], pad_frac=0.05, default=(-1.0, 1.0))
+    y_min, y_max = _finite_bounds([data[..., 1], predicted_win[..., 1]], pad_frac=0.05, default=(-1.0, 1.0))
+
+    # ---- plotting ----
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.set(xlim=(x_min, x_max), ylim=(y_min, y_max))
@@ -415,34 +613,43 @@ def plot_predictions(predicted: np.ndarray,
     colors = yaml.safe_load(open('style.yaml'))
     c_data = clr.LinearSegmentedColormap.from_list(
         'Greys', [colors['groundtruth']['light'], colors['groundtruth']['dark']],
-        N=data.shape[0])
+        N=data.shape[0]
+    )
     c_pred = clr.LinearSegmentedColormap.from_list(
-        'Blues', [colors[model]['light'], colors[model]['dark']], N=predicted.shape[0])
+        'Blues', [colors[model]['light'], colors[model]['dark']],
+        N=predicted_win.shape[0]
+    )
 
-    for t in range(data.shape[0]):
-        x, y = data[t][:, 0], data[t][:, 1]
-        ax.scatter(x, y, edgecolors=[c_data(t)],
-                   facecolor='none', label='data, t={}'.format(t), marker=colors['groundtruth']['marker'])
+    # ground truth
+    for i, t in enumerate(timesteps):
+        x, y = data[i, :, 0], data[i, :, 1]
+        ax.scatter(
+            x, y,
+            edgecolors=[c_data(i)], facecolor='none',
+            label=f'data, t={t}', marker=colors['groundtruth']['marker']
+        )
         if save_to is not None:
-            np.savetxt(save_to + f'-data-{t}.txt', np.column_stack(
-                (x.flatten(), y.flatten())), fmt='%-7.2f')
+            np.savetxt(f"{save_to}-data-{t}.txt", np.column_stack((x, y)), fmt='%-7.2f')
 
-    for t in range(predicted.shape[0]):
-        x, y = predicted[t][:, 0], predicted[t][:, 1]
-        ax.scatter(x, y, c=[c_pred(t)],
-                   label='predicted, t={}'.format(t), marker=colors[model]['marker'])
+    # predicted
+    for i, t in enumerate(timesteps):
+        x, y = predicted_win[i, :, 0], predicted_win[i, :, 1]
+        ax.scatter(
+            x, y,
+            c=[c_pred(i)],
+            label=f'predicted, t={t}', marker=colors[model]['marker']
+        )
         if save_to is not None:
-            np.savetxt(save_to + f'-predicted-{t}.txt', np.column_stack(
-                (x.flatten(), y.flatten())), fmt='%-7.2f')
+            np.savetxt(f"{save_to}-predicted-{t}.txt", np.column_stack((x, y)), fmt='%-7.2f')
 
     ax.legend(bbox_to_anchor=(0.5, 1.25), fontsize='medium',
-              loc='upper center', ncol=3,
-              columnspacing=1, frameon=False)
+              loc='upper center', ncol=3, columnspacing=1, frameon=False)
 
     fig.tight_layout()
     if save_to is not None:
-        fig.savefig(save_to + '.png')
+        fig.savefig(f"{save_to}.png")
     return fig
+
 
 def colormap_from_config(config: Dict[str, str]) -> clr.LinearSegmentedColormap:
     """
@@ -568,7 +775,7 @@ def plot_boxplot_comparison_models(
             np.savetxt(save_to + f'-{model}.txt', data[model_names.index(model)], fmt='%.2f')
 
     return fig
-    
+
 
 def plot_comparison_models(
     error1: np.ndarray,
@@ -638,7 +845,7 @@ def plot_comparison_models(
         label_err2 = normalized_error2[labels == label]
         mean_err1 = np.mean(label_err1)
         mean_err2 = np.mean(label_err2)
-        
+
         any_nan_x = any_nan_x or np.isnan(label_err1).any()
         any_nan_y = any_nan_y or np.isnan(label_err2).any()
 
@@ -653,12 +860,12 @@ def plot_comparison_models(
             min_y = min(min_y, np.min(label_err2))
 
         ax.scatter(
-            label_err1, label_err2, label=label, 
+            label_err1, label_err2, label=label,
             alpha=0.5, color=cmaps[i], s=size)
         ax.scatter(
-            mean_err1, mean_err2, label=label, 
+            mean_err1, mean_err2, label=label,
             alpha=1, color=cmaps[i], s=size)
-        
+
         if insert_inset:
             ax_inset.scatter(label_err1, label_err2, label=label, alpha=0.5, color=cmaps[i], s=size)
             ax_inset.scatter(mean_err1, mean_err2, label=label, alpha=1, color=cmaps[i], s=size)
@@ -670,22 +877,22 @@ def plot_comparison_models(
     ax.set_ylim(0, 1.2) #  if any_nan_y else 1.0
     xticks = ax.get_xticks()
     ax.set_xticklabels([
-        'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}' 
+        'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}'
         for label in xticks])
     yticks = ax.get_yticks()
     ax.set_yticklabels([
-        'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}' 
+        'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}'
         for label in yticks])
     if insert_inset:
         ax_inset.set_xlim(min_x, max_x if not any_nan_x else 1.2)
         ax_inset.set_ylim(min_y, max_y if not any_nan_y else 1.2)
         xticks = ax_inset.get_xticks()
         ax_inset.set_xticklabels([
-            'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}' 
+            'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}'
             for label in xticks])
         yticks = ax_inset.get_yticks()
         ax_inset.set_yticklabels([
-            'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}' 
+            'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}'
             for label in yticks])
         ax_inset.plot([1.0, 1.0], [0, 1.2], color='black', linestyle='dotted')
         # Add background to inset
@@ -696,14 +903,14 @@ def plot_comparison_models(
         ax.add_patch(plt.Rectangle(coords[0] - border, w, h, fc="white",
                                 transform=ax.transAxes, zorder=2, ec="red", linewidth=2))
         ax.add_patch(plt.Rectangle(
-            np.asarray([min_x, min_y]) - border, 
-            max_x - min_x + 2 * border, 
+            np.asarray([min_x, min_y]) - border,
+            max_x - min_x + 2 * border,
             max_y - min_y + 2 * border,
             facecolor='none',
             ec="red", linewidth=2))
         ax.plot([min_x - border, coords[0][0] + border], [max_y + border, coords[0][1] + border], color='red', linestyle='dashed')
         ax.plot([max_x + border, 1.17], [max_y + border, coords[0][1] + border], color='red', linestyle='dashed')
-        
+
 
     ax.set_xlabel(f'{model_names[0]}')
     ax.set_ylabel(f'{model_names[1]}')
@@ -760,7 +967,7 @@ def plot_loss(
     ax.set_xlabel(parameter["name"])
     yticks = ax.get_yticks()
     ax.set_yticklabels([
-        'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}' 
+        'NaN' if np.isclose(label, 1.2, atol=0.1) else f'{label:.1f}'
         for label in yticks])
     ax.legend()
     fig.tight_layout()
@@ -769,5 +976,4 @@ def plot_loss(
         plt.savefig(save_to + '.png')
 
     return fig
-
 

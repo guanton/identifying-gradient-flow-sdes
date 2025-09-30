@@ -1,0 +1,36 @@
+# Bytecode / build
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+
+# Envs
+.env
+.venv
+.conda/
+conda-meta/
+.envrc
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Experiments / outputs (keep repos small)
+out/
+main_experiments/
+results_csvs/
+results_plots/
+*.npz
+*.npy
+*.csv
+*.pdf
+*.log
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Misc
+*.lock

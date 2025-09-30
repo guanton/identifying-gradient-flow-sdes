@@ -1,3 +1,25 @@
+# MIT License
+#
+# Copyright (c) 2024 Antonio Terpin, Nicolas Lanzetti, Martin Gadea, Florian Dörfler
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 """
 This module provides a collection of energy landscape functions commonly used for optimization, testing, and benchmarking purposes. These functions are intentionally not vectorized to enable the use of ``jax.grad`` for automatic differentiation. For automatic vectorization, you can use ``jax.vmap``.
 
@@ -46,6 +68,62 @@ For vectorized operations, you can use `jax.vmap` over the provided functions.
 """
 
 import jax.numpy as jnp
+def flat_disk_moat(
+    v,
+    R: float = 1.0,      # flat radius
+    w: float = 0.5,      # ramp width
+    c0: float = 0.0,     # value inside
+    c1: float = 1.0,     # value at r = R + w
+    c2: float = 1.0,     # outside growth coeff
+    p_out: float = 2.0,  # outside growth power
+    ripple_amp: float = 1.0,   # A
+    ripple_freq: float = 2.0,  # cycles per unit distance
+    ripple_phase: float = 0.0, # radians
+    ripple_start: float = 0.5, # ℓ: fade-in length for ripples
+    envelope: str = "exp",     # "exp" or "rational"
+    decay: float = 0.5,        # exp envelope parameter
+    alpha: float = 0.2,        # rational envelope parameter
+    m: float = 2.0,            # rational envelope power
+    center=None,
+):
+    """
+    Region I: r<=R,          V=c0 (flat).
+    Region II: R<r<R+w,      V=(1-h)c0 + h c1,  h(s)=3s^2-2s^3, s=(r-R)/w.
+    Region III: r>=R+w,      V=c1 + c2*dr^p_out + A * S(dr) * E(dr) * cos(2π f dr + φ),
+                              dr = r-(R+w), S(dr)=1-exp(-(dr/ℓ)^2), E=exp(-decay*dr) or 1/(1+α dr^m).
+    Joins are C^1 at r=R and r=R+w.
+    """
+    if center is None:
+        center = jnp.zeros_like(v)
+
+    r = jnp.sqrt(jnp.sum((v - center) ** 2))
+    w_safe = jnp.maximum(w, 1e-12)
+    s = (r - R) / w_safe
+    s_c = jnp.clip(s, 0.0, 1.0)
+    h = 3.0 * s_c**2 - 2.0 * s_c**3
+
+    V_inside = c0
+    V_ramp   = (1.0 - h) * c0 + h * c1
+
+    dr = r - (R + w)
+    dr_pos = jnp.maximum(0.0, dr)
+
+    # Smooth ripple onset with zero slope at boundary:
+    ell = jnp.maximum(ripple_start, 1e-12)
+    S_ripple = 1.0 - jnp.exp(-(dr_pos / ell) ** 2)
+
+    # Decaying envelope
+    if envelope == "exp":
+        E = jnp.exp(-decay * dr_pos)
+    else:
+        E = 1.0 / (1.0 + alpha * (dr_pos ** m))
+
+    ripple = ripple_amp * S_ripple * E * jnp.cos(2.0 * jnp.pi * ripple_freq * dr_pos + ripple_phase)
+    V_outside = c1 + c2 * (dr_pos ** p_out) + ripple
+
+    V_mid = jnp.where(r <= R, V_inside, V_ramp)
+    V_all = jnp.where(r >= R + w, V_outside, V_mid)
+    return V_all
 
 def styblinski_tang(v: jnp.ndarray) -> jnp.ndarray:
     r"""
@@ -182,7 +260,7 @@ def friedman(v: jnp.ndarray) -> jnp.ndarray:
     Computes the Friedman function.
 
     .. math::
-        f(v) = \frac{1}{100}\biggl(10\sin\left(2\pi(z_1 - 7)(z_2 - 7)\right) + 
+        f(v) = \frac{1}{100}\biggl(10\sin\left(2\pi(z_1 - 7)(z_2 - 7)\right) +
         20\left(2(z_1 - 7)\sin(z_2 - 7)- \frac{1}{2}\right)^2 \\\\ +
         10\left(2(z_1 - 7)\cos(z_2 - 7) - 1\right)^2 + \frac{1}{10}(z_2 - 7)\sin(2(z_1 - 7))\biggr)
 
@@ -206,6 +284,30 @@ def friedman(v: jnp.ndarray) -> jnp.ndarray:
     v4 = v1 * jnp.cos(v2)
     v5 = v2 * jnp.sin(v1)
     return (10 * jnp.sin(jnp.pi * v1 * v2) + 20 * (v3 - 0.5) ** 2 + 10 * (v4 - 1) ** 2 + 0.1 * v5) / 100
+
+
+
+def poly(v: jnp.ndarray, theta_dict: dict = {2: 5.0}) -> jnp.ndarray:
+    r"""
+    Computes a separable polynomial potential for a vector input:
+
+        V(v) = \sum_{j=1}^{d} \sum_{i \in \theta_{dict}} \theta_{dict}[i] \cdot v_j^i.
+
+    For example, a quadratic potential in d dimensions can be obtained by specifying:
+        theta_dict = {2: 1.0}
+    or an affine-quadratic potential by, e.g., {1: a, 2: b}.
+
+    Parameters:
+        v (jnp.ndarray): Input vector.
+        theta_dict (dict): Dictionary with keys as monomial degrees and values as coefficients.
+
+    Returns:
+        jnp.ndarray: The evaluated potential.
+    """
+    potential = 0.0
+    for degree, coeff in theta_dict.items():
+        potential += coeff * jnp.sum(v ** degree)
+    return potential
 
 def sphere(v: jnp.ndarray) -> jnp.ndarray:
     r"""
@@ -385,7 +487,9 @@ potentials_all = {
     'zigzag_ridge': zigzag_ridge,
     'oakley_ohagan': oakley_ohagan,
     'sphere': sphere,
-    'styblinski_tang': styblinski_tang
+    'poly': poly,
+    'styblinski_tang': styblinski_tang,
+    'flat_disk_moat': flat_disk_moat
 }
 
 interactions_all = potentials_all
