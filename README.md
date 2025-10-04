@@ -8,7 +8,7 @@ This repository contains code for
 
 ## Introduction
 
-Our paper "Gradient-flow SDEs have unique transient population dynamics", proves that both the drift 
+Our paper [Gradient-flow SDEs have unique transient population dynamics](https://arxiv.org/abs/2505.21770), proves that both the drift 
 $-\nabla \Psi$ and the diffusivity $\sigma^2$ of a gradient-flow SDE,
 
 $$\mathrm{dX_t} = -\nabla \Psi(X_t)\mathrm{dt}{} + \sigma \mathrm{dW_t},$$
@@ -120,6 +120,10 @@ python -m interpret_results.make_boxplot_pdfs \
 ```
 would create two separate boxplot pdfs in a folder named `results_plots`. The output should look something like this
 ![grid_box_cos_gmm.png](aux/grid_box_cos_gmm.png)
+
+## Link to paper
+[Gradient-flow SDEs have unique transient population dynamics](https://arxiv.org/abs/2505.21770)
+
 
 
 
