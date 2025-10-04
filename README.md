@@ -10,11 +10,11 @@ This repository contains code for
 
 Our paper "Gradient-flow SDEs have unique transient population dynamics", proves that both the drift 
 $-\nabla \Psi$ and the diffusivity $\sigma^2$ of a gradient-flow SDE,
-$$
-\mathrm{dX_t} = -\nabla \Psi(X_t)\mathrm{dt}{} + \sigma \mathrm{dW_t},
-$$
-are identifiable from their temporal marginals $\{p(\cdot, t)\}_{t \ge 0}$ if and only if are sampled outside of equilibrium. 
-Furthermore, three distinct marginals, $\bigl(p(\cdot, t_i)\bigr)_{i=1}^3$ identify the true SDE with probability $1$ (see Section 4 of our paper). 
+
+$$\mathrm{dX_t} = -\nabla \Psi(X_t)\mathrm{dt}{} + \sigma \mathrm{dW_t},$$
+
+are identifiable from their temporal marginals if and only if are sampled outside of equilibrium. 
+Furthermore, three distinct marginals identify the true SDE with probability $1$ (see Section 4 of our paper). 
 This identifiability result motivated the development of $\texttt{nn-APPEX}$, the first Schrödinger Bridge-based method, 
 capable of jointly inferring gradient-driven drift $-\nabla \Psi$ and the diffusivity $\sigma^2$ (see Section 5 of our paper).
 To reproduce the main experiments in our paper (summarized in Section 6 and Appendix G) follow the steps below.
