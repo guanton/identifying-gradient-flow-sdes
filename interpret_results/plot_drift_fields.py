@@ -124,14 +124,15 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--root", type=str, default="main_experiments")
     p.add_argument("--p0", type=str, default="gmm", choices=["gmm", "gibbs", "unif"])
-    p.add_argument("--dataset", type=str, required=True,
+    p.add_argument("--dataset", type=str,
                    help="Dataset folder name under p0-<p0>/ (no auto-template).")
     p.add_argument("--panels", type=str, default="gt,appex,wot,sbirr,jkonet_star",
                    help="Comma-separated list of panels/subfolders (use 'gt' for ground-truth).")
     p.add_argument("--potential", required=True,
                    choices=["quadratic","styblinski_tang","bohachevsky","wavy_plateau","oakley_ohagan",
                             "watershed","friedman","ishigami","flowers","double_exp","relu","holder_table","zigzag_ridge","flat"])
-
+    p.add_argument("--seed", type=int, default=1000,
+                   help="Used to auto-fill dataset name if --dataset is not provided.")
     # optional title overrides "key=Nice Title,other=Another Title"
     p.add_argument("--title-map", type=str, default=None,
                    help="Comma-separated key=value pairs to override panel titles.")
@@ -168,6 +169,11 @@ def main():
                    help="Print the resolved npz path for each panel.")
 
     args = p.parse_args()
+
+    if args.dataset is None:
+        if args.potential is None or args.seed is None:
+            raise ValueError("If --dataset is not provided, you must pass both --potential and --seed.")
+        args.dataset = f"3_margs_langevin_{args.potential}_diff-0.2_seed-{args.seed}"
 
     root = Path(args.root)
     base_dir = (root / f"p0-{args.p0}" / args.dataset).resolve()

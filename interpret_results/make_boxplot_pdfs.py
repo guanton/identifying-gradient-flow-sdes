@@ -10,7 +10,28 @@ import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, Circle
+from matplotlib.patches import Patch
+
+def draw_legend(fig, methods: list[str], face_colors: dict, hatch_patterns: dict):
+    handles = []
+    for m in methods:
+        patch = Patch(
+            facecolor=face_colors.get(m, "#CCCCCC"),
+            edgecolor="black",
+            hatch=hatch_patterns.get(m, None),
+            label=METHOD_LABEL.get(m, m),
+            linewidth=1.0
+        )
+        handles.append(patch)
+    # Legend BELOW the entire figure
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.05),
+        ncol=len(handles),
+        fontsize=10,
+        frameon=False
+    )
 
 
 # --- ensure UNCOMPRESSED PDFs & editable fonts ---
@@ -384,7 +405,7 @@ def _draw_grouped_bxp(ax,
 # -------------- figures --------------
 def make_figure(mae_csv: Path, cos_csv: Path, out_pdf: Path,
                 *, pot_order=DEFAULT_POT_ORDER, user_alias: Dict[str, str] | None = None,
-                mae_yticks=None, cos_yticks=None, methods: List[str] | None = None):
+                mae_yticks=None, cos_yticks=None, methods: List[str] | None = None, legend: bool = False):
     user_alias = user_alias or {}
     df_mae = _load_boxcsv(mae_csv, user_alias)
     df_cos = _load_boxcsv(cos_csv, user_alias)
@@ -434,7 +455,7 @@ def make_figure(mae_csv: Path, cos_csv: Path, out_pdf: Path,
 
 def make_separate_panels(mae_csv: Path, cos_csv: Path, out_dir: Path,
                          *, pot_order=DEFAULT_POT_ORDER, user_alias: Dict[str, str] | None = None,
-                         mae_yticks=None, cos_yticks=None, methods: List[str] | None = None, p0=None):
+                         mae_yticks=None, cos_yticks=None, methods: List[str] | None = None, p0=None, legend: bool = False):
     user_alias = user_alias or {}
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -459,6 +480,19 @@ def make_separate_panels(mae_csv: Path, cos_csv: Path, out_dir: Path,
         a, b, ticks = mae_yticks
         ax.set_yticks(ticks)
         ax.set_ylim(a - 0.03 * (b - a), b + 0.03 * (b - a) )  # add 2% pad below bottom
+
+    if legend:
+        draw_legend(
+            fig,
+            active_mae,
+            {
+                "wot": ORANGE_WOT, "SBIRR": ORANGE_SBIRR,
+                "nn_appex": ORANGE_APPEX, "jkonet_star": ORANGE_JKONET,
+                "jkonet_10000": ORANGE_JKONET, "jkonet": ORANGE_JKONET
+            },
+            METHOD_HATCH
+        )
+        fig.subplots_adjust(bottom=0.35)  # extra space for legend
     fig.subplots_adjust(**SUBPLOT_ADJ)
     if p0 is not None:
         mae_filename = f'grid_box_mae_{p0}.pdf'
@@ -488,6 +522,18 @@ def make_separate_panels(mae_csv: Path, cos_csv: Path, out_dir: Path,
         a, b, ticks = cos_yticks
         ax.set_ylim(a, b); ax.set_yticks(ticks)
         ax.set_ylim(a - 0.03 * (b - a), b + 0.03 * (b - a) )
+    if legend:
+        draw_legend(
+            fig,
+            active_cos,
+            {
+                "wot": BLUE_WOT, "SBIRR": BLUE_SBIRR,
+                "nn_appex": BLUE_APPEX, "jkonet_star": BLUE_JKONET,
+                "jkonet_10000": BLUE_JKONET, "jkonet": BLUE_JKONET
+            },
+            METHOD_HATCH
+        )
+        fig.subplots_adjust(bottom=0.35)  # extra space for legend
     fig.subplots_adjust(**SUBPLOT_ADJ)
     if p0 is not None:
         cos_filename = f'grid_box_cos_{p0}.pdf'
@@ -539,8 +585,8 @@ def main():
     ap.add_argument("--cos", help="box-agg CSV for cosine")
     ap.add_argument("--diff", default=None,
                     help="CSV for diffusivity MAE (columns: potential,method,mean,sem[,n])")
-    ap.add_argument("--combined", default=None, help="single PDF with both panels (no legend)")
-    ap.add_argument("--outdir", default=None, help="folder for separate MAE/COS PDFs (no legend)")
+    ap.add_argument("--combined", default=None, help="single PDF with both panels")
+    ap.add_argument("--outdir", default=None, help="folder for separate MAE/COS PDFs")
     # per-panel yticks
     ap.add_argument("--mae-yticks", default="0,2.0,0.1",
                     help='y ticks for MAE as "start,stop,step"')
@@ -556,6 +602,7 @@ def main():
                     help="subset/order of methods (after aliasing), e.g. 'appex,jkonet_star' or 'jkonet_star,jkonet_10000'")
     ap.add_argument("--diff-yticks", default="",
                     help='y ticks for diffusivity as "start,stop,step" (optional)')
+    ap.add_argument("--legend", action="store_true", help="Plot the legend")
     args = ap.parse_args()
     def _parse_yticks_opt(s):
         return _parse_yticks(s) if s else None
@@ -589,13 +636,13 @@ def main():
         make_figure(mae_csv, cos_csv, Path(args.combined),
                     pot_order=pot_order, user_alias=user_alias,
                     mae_yticks=mae_ticks, cos_yticks=cos_ticks,
-                    methods=requested_methods)
+                    methods=requested_methods, legend=args.legend)
 
     if args.outdir and args.mae and args.cos:
         make_separate_panels(mae_csv, cos_csv, Path(args.outdir),
                              pot_order=pot_order, user_alias=user_alias,
                              mae_yticks=mae_ticks, cos_yticks=cos_ticks,
-                             methods=requested_methods, p0=args.p0)
+                             methods=requested_methods, p0=args.p0, legend=args.legend)
 
 
 if __name__ == "__main__":

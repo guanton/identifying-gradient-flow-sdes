@@ -37,6 +37,7 @@ for idx in "${!pot_names[@]}"; do
         --steps_elapsed_X0 200 \
         --dt "${dt}" \
         --initial_length 4 \
+        --n-timesteps 2 \
         --n-particles "${N}"
 
       echo ">>> Training on ${dataset}"
@@ -48,7 +49,7 @@ for idx in "${!pot_names[@]}"; do
         --solver jkonet-star-potential-internal \
         --seed "${seed}" \
         --dataset "${dataset}" \
-        --epochs 1000 \
+        --epochs 100 \
         --potential "${pot_flag}" \
         --sb-iters 0 \
         --diffusivity "${diff}" \
