@@ -44,7 +44,7 @@ The code for simulating data is principally found in `data_generator.py`. Each r
 As an example, we plot the population dynamics of a gradient-flow SDE, driven by the Styblinski-Tang potential below, with a random Gaussian mixture initialization:
 
 
-![styblinski_tang potential with diffusivity 0.2.gif](aux/styblinski_tang%20potential%20with%20diffusivity%200.2.gif)
+![styblinski_tang potential with diffusivity 0.2.gif](aux_files/styblinski_tang%20potential%20with%20diffusivity%200.2.gif)
 
 Note that we only generate three marginals for our main experiments, in order to mimic the setup of our identifiability theory.
 The number of particles `n-particles`, the time step `dt`, and the number of observed steps `n-timesteps` can all be adjusted when running `data_generator.py'. 
@@ -54,7 +54,7 @@ The number of particles `n-particles`, the time step `dt`, and the number of obs
 The main experiments compare $\texttt{nn-APPEX}$ against previous Schrödinger Bridge-based methods, 
 $\texttt{WOT}$ and $\texttt{SBIRR}$, so SDE inference is run using each of these SB methods, immediately after data generation.
 Our main scripts additionally include inference by the state-of-the-art variational method 
-[$\texttt{JKOnet}^\ast$](https://github.com/antonioterpin/jkonet-star)(Terpin et al., NeurIPS 2024), from which this repository was forked. 
+[JKOnet*](https://github.com/antonioterpin/jkonet-star)(Terpin et al., NeurIPS 2024), from which this repository was forked. 
 Code for each method is run from the file `train.py`. Each method saves a parametrization of the estimated drift field on a discretized grid.
 We note that hyperparameters, such as neural network parameters for estimating the drift field, can be tuned for each method.
 
@@ -78,7 +78,7 @@ python -m interpret_results.plot_drift_fields \
 --print-metrics 
 ```
 produces the following panel plot
-![oakley_drift_fields.png](aux/oakley_drift_fields.png)
+![oakley_drift_fields.png](aux_files/oakley_drift_fields.png)
 and the optional argument ``--print-metrics`` reports normalized absolute error and cosine similarity.
 ```
 [metrics]              wot :  normalized_MAE=0.4571   cosine=0.7129
@@ -119,7 +119,7 @@ python -m interpret_results.make_boxplot_pdfs \
   --legend
 ```
 would create two separate boxplot pdfs in a folder named `results_plots`. The output should look something like this
-![grid_box_cos_gmm.png](aux/grid_box_cos_gmm.png)
+![grid_box_cos_gmm.png](aux_files/grid_box_cos_gmm.png)
 
 ## Link to paper
 [Gradient-flow SDEs have unique transient population dynamics](https://arxiv.org/abs/2505.21770)
