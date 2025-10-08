@@ -20,6 +20,7 @@ dependencies:
       - flax
       - fsspec
       - gitpython
+      - imageio
       - jax
       - jaxlib
       - jaxopt
