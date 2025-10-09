@@ -64,6 +64,7 @@ for idx in "${!pot_names[@]}"; do
         --dataset "${dataset}" \
         --epochs 0 \
         --potential "${pot_flag}" \
+        --fix_diffusion \
         --sb-iters 1 \
         --diffusivity "${diff}" \
         --activation "silu" \

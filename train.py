@@ -122,7 +122,7 @@ def _save_inference_bundle(
     est_sigma2: float,          # σ²
     est_drift_fn,               # callable: np.ndarray[d] -> np.ndarray[d]
     seed: int = 0,
-    n_random: int = 10000,
+    n_random: int = 100,
     init_sigma2: float = 1.0
 ):
     """
@@ -514,7 +514,7 @@ def main(args: argparse.Namespace) -> None:
         est_sigma2=2 * beta_eval,   # store σ²
         est_drift_fn=est_drift_fn,
         seed=args.seed,
-        n_random=10000,
+        n_random=100,
         init_sigma2=init_sigma2
     )
     print(f"[inference] saved bundle to {method_dir}/inference_bundle.npz")
